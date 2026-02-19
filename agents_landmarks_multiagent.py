@@ -23,7 +23,7 @@ def get_name_brain(args, idx):
 
     file_name_str = '_'.join([str(args[x]) for x in ARG_LIST])
 
-    return './results_agents_landmarks/weights_files/' + file_name_str + '_' + str(idx) + '.h5'
+    return './results_agents_landmarks/weights_files/' + file_name_str + '_' + str(idx) + '.pth'
 
 
 def get_name_rewards(args):
@@ -65,7 +65,7 @@ class Environment(object):
         rewards_list = []
         timesteps_list = []
         max_score = -10000
-        for episode_num in xrange(self.episodes_number):
+        for episode_num in range(self.episodes_number):
             state = self.env.reset()
             if self.render:
                 self.env.render()
@@ -73,8 +73,8 @@ class Environment(object):
             random_moves = random.randint(0, self.max_random_moves)
 
             # create randomness in initial state
-            for _ in xrange(random_moves):
-                actions = [4 for _ in xrange(len(agents))]
+            for _ in range(random_moves):
+                actions = [4 for _ in range(len(agents))]
                 state, _, _ = self.env.step(actions)
                 if self.render:
                     self.env.render()
@@ -204,7 +204,7 @@ if __name__ =="__main__":
     action_space = env.env.action_space()
 
     all_agents = []
-    for b_idx in xrange(args['agents_number']):
+    for b_idx in range(args['agents_number']):
 
         brain_file = get_name_brain(args, b_idx)
         all_agents.append(Agent(state_size, action_space, b_idx, brain_file, args))

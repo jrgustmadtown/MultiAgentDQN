@@ -143,9 +143,9 @@ class PredatorsPrey(object):
     def neighbor_finder(self, pos):
         neighbors_pos = []
         action_to_neighbor = []
-        pos_repeat = [pos for _ in xrange(4)]
-        for idx in xrange(4):
-            neighbor_pos = map(operator.add, pos_repeat[idx], self.A_DIFF[idx])
+        pos_repeat = [pos for _ in range(4)]
+        for idx in range(4):
+            neighbor_pos = list(map(operator.add, pos_repeat[idx], self.A_DIFF[idx]))
             if neighbor_pos[0] in range(0,self.grid_size) and neighbor_pos[1] in range(0,self.grid_size)\
                     and neighbor_pos not in self.walls_positions:
                 neighbors_pos.append(neighbor_pos)
@@ -159,9 +159,9 @@ class PredatorsPrey(object):
     def empty_neighbor_finder(self, pos):
         neighbors_pos = []
         action_to_neighbor = []
-        pos_repeat = [pos for _ in xrange(4)]
-        for idx in xrange(4):
-            neighbor_pos = map(operator.add, pos_repeat[idx], self.A_DIFF[idx])
+        pos_repeat = [pos for _ in range(4)]
+        for idx in range(4):
+            neighbor_pos = list(map(operator.add, pos_repeat[idx], self.A_DIFF[idx]))
             if neighbor_pos[0] in range(0,self.grid_size) and neighbor_pos[1] in range(0, self.grid_size)\
                     and neighbor_pos not in self.walls_positions:
                 neighbors_pos.append(neighbor_pos)
@@ -173,7 +173,7 @@ class PredatorsPrey(object):
         empty_neighbors_pos = []
         action_to_empty_neighbor = []
 
-        for idx in xrange(len(neighbors_pos)):
+        for idx in range(len(neighbors_pos)):
             if tuple(neighbors_pos[idx]) not in self.predators_positions:
                 empty_neighbors_pos.append(neighbors_pos[idx])
                 action_to_empty_neighbor.append(action_to_neighbor[idx])
@@ -183,7 +183,7 @@ class PredatorsPrey(object):
     def step(self, predators_actions):
         # update the position of preys
         preys_actions = []
-        for prey_idx in xrange(len(self.preys_positions)):
+        for prey_idx in range(len(self.preys_positions)):
             if self.preys_mode == 0:
                 preys_actions.append(self.fix_prey())
             elif self.preys_mode == 1:
@@ -254,11 +254,11 @@ class PredatorsPrey(object):
 
     def update_positions(self, pos_list, act_list):
         positions_action_applied = []
-        for idx in xrange(len(pos_list)):
+        for idx in range(len(pos_list)):
             if act_list[idx] != 4:
-                pos_act_applied = map(operator.add, pos_list[idx], self.A_DIFF[act_list[idx]])
+                pos_act_applied = list(map(operator.add, pos_list[idx], self.A_DIFF[act_list[idx]]))
                 # checks to make sure the new pos in inside the grid
-                for i in xrange(0, 2):
+                for i in range(0, 2):
                     if pos_act_applied[i] < 0:
                         pos_act_applied[i] = 0
                     if pos_act_applied[i] >= self.grid_size:
@@ -269,7 +269,7 @@ class PredatorsPrey(object):
 
         final_positions = []
 
-        for pos_idx in xrange(len(pos_list)):
+        for pos_idx in range(len(pos_list)):
             if positions_action_applied[pos_idx] == pos_list[pos_idx]:
                 final_positions.append(pos_list[pos_idx])
             elif positions_action_applied[pos_idx] not in pos_list and positions_action_applied[pos_idx] not in positions_action_applied[

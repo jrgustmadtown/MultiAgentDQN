@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv/
+
+# PyTorch Model Weights
+*.pth
+*.pt
+
+# Old Keras/TensorFlow Weights
+*.h5
+*.hdf5
+
+# Results and Output
+results_agents_landmarks/
+results_predators_prey/
+*.csv
+*.mp4
+*.avi
+*.gif
+
+# Don't track weight files
+results_*/weights_files/
+results_*/rewards_files/
+results_*/timesteps_files/
+results_*/snaps/
+results_*/videos/
+results_*/figures/
+
+# Logs
+*.log
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+*.bak
+
+# Training artifacts
+checkpoints/
+runs/
+logs/
+wandb/

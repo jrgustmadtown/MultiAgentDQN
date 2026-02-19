@@ -195,11 +195,11 @@ class agentslandmarks:
 
     def update_positions(self, pos_list, act_list):
         positions_action_applied = []
-        for idx in xrange(len(pos_list)):
+        for idx in range(len(pos_list)):
             if act_list[idx] != 4:
-                pos_act_applied = map(operator.add, pos_list[idx], self.A_DIFF[act_list[idx]])
+                pos_act_applied = list(map(operator.add, pos_list[idx], self.A_DIFF[act_list[idx]]))
                 # checks to make sure the new pos in inside the grid
-                for i in xrange(0, 2):
+                for i in range(0, 2):
                     if pos_act_applied[i] < 0:
                         pos_act_applied[i] = 0
                     if pos_act_applied[i] >= self.grid_size:
@@ -210,7 +210,7 @@ class agentslandmarks:
 
         final_positions = []
 
-        for pos_idx in xrange(len(pos_list)):
+        for pos_idx in range(len(pos_list)):
             if positions_action_applied[pos_idx] == pos_list[pos_idx]:
                 final_positions.append(pos_list[pos_idx])
             elif positions_action_applied[pos_idx] not in pos_list and positions_action_applied[

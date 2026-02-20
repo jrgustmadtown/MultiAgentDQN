@@ -9,6 +9,7 @@ import os
 import random
 import argparse
 import pandas as pd
+import matplotlib.pyplot as plt
 from environments.car_game.env import CarGame
 from dqn_agent import Agent
 import glob
@@ -46,9 +47,16 @@ class Environment(object):
         self.steps_b_updates = arguments['replay_steps']
 
     def run(self, agents, file1, file2):
+        import time
         total_step = 0
         rewards_list = []
         timesteps_list = []
+        losses_list = [[], []]  # Track losses for both agents
+        start_time = time.time()
+        
+        print(f"\n{'='*60}")
+        print(f"Starting training for {self.episodes_number} episodes")
+        print(f"{'='*60}\n")
         
         for episode_num in range(self.episodes_number):
             state = self.env.reset()
@@ -97,21 +105,132 @@ class Environment(object):
 
             rewards_list.append(reward_all)
             timesteps_list.append(time_step)
+            
+            # Track average loss for this episode for each agent
+            for agent_idx, agent in enumerate(agents):
+                if len(agent.losses) > 0:
+                    avg_loss = np.mean(agent.losses[-time_step:]) if len(agent.losses) >= time_step else np.mean(agent.losses)
+                    losses_list[agent_idx].append(avg_loss)
+                else:
+                    losses_list[agent_idx].append(0.0)
 
-            print(f"Episode {episode_num}/{self.episodes_number}, Steps: {time_step}, Reward: {reward_all:.2f}")
+            # Progress reporting with ETA
+            progress = (episode_num + 1) / self.episodes_number * 100
+            elapsed = time.time() - start_time
+            if episode_num > 0:
+                eta = elapsed / (episode_num + 1) * (self.episodes_number - episode_num - 1)
+                eta_min = int(eta // 60)
+                eta_sec = int(eta % 60)
+                print(f"[{progress:5.1f}%] Episode {episode_num+1}/{self.episodes_number} | "
+                      f"Steps: {time_step:3d} | Reward: {reward_all:7.2f} | "
+                      f"ETA: {eta_min}m {eta_sec}s")
+            else:
+                print(f"[{progress:5.1f}%] Episode {episode_num+1}/{self.episodes_number} | "
+                      f"Steps: {time_step:3d} | Reward: {reward_all:7.2f}")
 
-            if self.render:
+            # Show final state if rendering is enabled
+            if self.render and done:
                 self.env.render()
 
         # Save results
         if not self.test:
+            print(f"\n{'='*60}")
+            print(f"Training completed in {int(elapsed//60)}m {int(elapsed%60)}s")
+            print(f"Saving results...")
+            
             df = pd.DataFrame(rewards_list, columns=['reward'])
             df.to_csv(file1, index=False)
             df = pd.DataFrame(timesteps_list, columns=['timesteps'])
             df.to_csv(file2, index=False)
             
+            # Save losses
+            loss_file_a = file1.replace('rewards_files', 'losses_files').replace('.csv', '_agent_a.csv')
+            loss_file_b = file1.replace('rewards_files', 'losses_files').replace('.csv', '_agent_b.csv')
+            df_loss_a = pd.DataFrame(losses_list[0], columns=['loss'])
+            df_loss_a.to_csv(loss_file_a, index=False)
+            df_loss_b = pd.DataFrame(losses_list[1], columns=['loss'])
+            df_loss_b.to_csv(loss_file_b, index=False)
+            
             for agent in agents:
                 agent.brain.save_model()
+            
+            print(f"Results saved to:")
+            print(f"  - {file1}")
+            print(f"  - {file2}")
+            print(f"  - {loss_file_a}")
+            print(f"  - {loss_file_b}")
+            print(f"{'='*60}\n")
+            
+            # Plot results
+            self._plot_results(rewards_list, losses_list, timesteps_list)
+    
+    def _plot_results(self, rewards, losses, timesteps):
+        """Generate and save plots of training results."""
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(14, 10))
+        
+        episodes = range(1, len(rewards) + 1)
+        
+        # Plot 1: Rewards
+        ax1.plot(episodes, rewards, alpha=0.3, color='blue', label='Raw')
+        if len(rewards) >= 10:
+            window = min(50, len(rewards) // 10)
+            smoothed = pd.Series(rewards).rolling(window=window, min_periods=1).mean()
+            ax1.plot(episodes, smoothed, color='darkblue', linewidth=2, label=f'Smoothed ({window} ep)')
+        ax1.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
+        ax1.set_title('Car A Rewards per Episode', fontsize=12, fontweight='bold')
+        ax1.set_xlabel('Episode')
+        ax1.set_ylabel('Reward (Car A)')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        
+        # Plot 2: Loss for Car A
+        ax2.plot(episodes, losses[0], alpha=0.3, color='red', label='Raw')
+        if len(losses[0]) >= 10:
+            window = min(50, len(losses[0]) // 10)
+            smoothed = pd.Series(losses[0]).rolling(window=window, min_periods=1).mean()
+            ax2.plot(episodes, smoothed, color='darkred', linewidth=2, label=f'Smoothed ({window} ep)')
+        ax2.set_title('Car A (Crasher) Loss', fontsize=12, fontweight='bold')
+        ax2.set_xlabel('Episode')
+        ax2.set_ylabel('Loss')
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+        
+        # Plot 3: Loss for Car B
+        ax3.plot(episodes, losses[1], alpha=0.3, color='green', label='Raw')
+        if len(losses[1]) >= 10:
+            window = min(50, len(losses[1]) // 10)
+            smoothed = pd.Series(losses[1]).rolling(window=window, min_periods=1).mean()
+            ax3.plot(episodes, smoothed, color='darkgreen', linewidth=2, label=f'Smoothed ({window} ep)')
+        ax3.set_title('Car B (Victim) Loss', fontsize=12, fontweight='bold')
+        ax3.set_xlabel('Episode')
+        ax3.set_ylabel('Loss')
+        ax3.legend()
+        ax3.grid(True, alpha=0.3)
+        
+        # Plot 4: Episode Length
+        ax4.plot(episodes, timesteps, alpha=0.3, color='purple', label='Raw')
+        if len(timesteps) >= 10:
+            window = min(50, len(timesteps) // 10)
+            smoothed = pd.Series(timesteps).rolling(window=window, min_periods=1).mean()
+            ax4.plot(episodes, smoothed, color='indigo', linewidth=2, label=f'Smoothed ({window} ep)')
+        ax4.set_title('Episode Length (Steps)', fontsize=12, fontweight='bold')
+        ax4.set_xlabel('Episode')
+        ax4.set_ylabel('Steps')
+        ax4.legend()
+        ax4.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        
+        # Save figure
+        plot_file = './results_car_game/figures/training_results.png'
+        os.makedirs('./results_car_game/figures', exist_ok=True)
+        plt.savefig(plot_file, dpi=150, bbox_inches='tight')
+        print(f"\nPlot saved to: {plot_file}")
+        
+        # Show plot
+        plt.show(block=False)
+        plt.pause(3)  # Display for 3 seconds
+        plt.close()
 
 
 if __name__ == '__main__':
@@ -149,6 +268,7 @@ if __name__ == '__main__':
     os.makedirs('./results_car_game/weights_files', exist_ok=True)
     os.makedirs('./results_car_game/rewards_files', exist_ok=True)
     os.makedirs('./results_car_game/timesteps_files', exist_ok=True)
+    os.makedirs('./results_car_game/losses_files', exist_ok=True)
 
     env = Environment(args)
     state_size = env.env.state_size

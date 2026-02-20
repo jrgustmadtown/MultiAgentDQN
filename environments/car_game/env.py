@@ -149,8 +149,8 @@ class CarGame(object):
         
         next_state = self._get_state()
         
-        if self.render_flag:
-            self.render()
+        # Only render if flag is set (don't render every step automatically)
+        # Rendering can be called manually from the training script
         
         return next_state, reward, self.done
     

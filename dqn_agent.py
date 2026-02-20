@@ -50,6 +50,9 @@ class Agent(object):
         self.test = arguments['test']
         if self.test:
             self.epsilon = MIN_EPSILON
+        
+        # Track losses for visualization
+        self.losses = []
 
     def greedy_actor(self, state):
         if np.random.rand() <= self.epsilon:
@@ -169,6 +172,7 @@ class Agent(object):
             batch = self.memory.sample(self.batch_size)
             x, y = self.find_targets_uer(batch)
             self.brain.train(x, y)
+            self.losses.append(self.brain.last_loss)
 
         elif self.memory_model == 'PER':
             [batch, batch_indices, batch_priorities] = self.memory.sample(self.batch_size)
@@ -182,6 +186,7 @@ class Agent(object):
             sample_weights = [errors[i] * normalized_importance_sampling_weights[i] for i in range(len(errors))]
 
             self.brain.train(x, y, np.array(sample_weights))
+            self.losses.append(self.brain.last_loss)
 
             self.memory.update(batch_indices, errors)
 

@@ -1,8 +1,7 @@
 """
-Created on Wednesday Jan  16 2019
+Nash-Q Brain - Joint Action-Value Function
 
-@author: Seyed Mohammad Asghari
-@github: https://github.com/s3yyy3d-m
+Neural network that outputs Q(s, a_A, a_B) for all action pairs.
 """
 
 import os
@@ -14,23 +13,32 @@ import numpy as np
 HUBER_LOSS_DELTA = 1.0
 
 
-class DQN(nn.Module):
-    def __init__(self, state_size, action_size, num_nodes):
-        super(DQN, self).__init__()
+class JointDQN(nn.Module):
+    """Network that outputs Q-values for all joint actions."""
+    def __init__(self, state_size, num_actions_per_agent, num_agents, num_nodes):
+        super(JointDQN, self).__init__()
+        self.num_actions_per_agent = num_actions_per_agent
+        self.num_agents = num_agents
+        self.joint_action_size = num_actions_per_agent ** num_agents  # 5^2 = 25
+        
         self.fc1 = nn.Linear(state_size, num_nodes)
         self.fc2 = nn.Linear(num_nodes, num_nodes)
-        self.fc3 = nn.Linear(num_nodes, action_size)
+        self.fc3 = nn.Linear(num_nodes, self.joint_action_size)
         
     def forward(self, x):
         x = torch.relu(self.fc1(x))
         x = torch.relu(self.fc2(x))
-        x = self.fc3(x)
+        x = self.fc3(x)  # Output: [batch, 25] for all (a_A, a_B) pairs
         return x
 
 
-class DuelingDQN(nn.Module):
-    def __init__(self, state_size, action_size, num_nodes):
-        super(DuelingDQN, self).__init__()
+class JointDuelingDQN(nn.Module):
+    """Dueling architecture for joint Q-values."""
+    def __init__(self, state_size, num_actions_per_agent, num_agents, num_nodes):
+        super(JointDuelingDQN, self).__init__()
+        self.num_actions_per_agent = num_actions_per_agent
+        self.num_agents = num_agents
+        self.joint_action_size = num_actions_per_agent ** num_agents
         
         # Value stream
         self.value_fc1 = nn.Linear(state_size, num_nodes)
@@ -40,7 +48,7 @@ class DuelingDQN(nn.Module):
         # Advantage stream
         self.advantage_fc1 = nn.Linear(state_size, num_nodes)
         self.advantage_fc2 = nn.Linear(num_nodes, num_nodes)
-        self.advantage_fc3 = nn.Linear(num_nodes, action_size)
+        self.advantage_fc3 = nn.Linear(num_nodes, self.joint_action_size)
         
     def forward(self, x):
         # Value stream
@@ -53,7 +61,7 @@ class DuelingDQN(nn.Module):
         advantage = torch.relu(self.advantage_fc2(advantage))
         advantage = self.advantage_fc3(advantage)
         
-        # Combine streams: Q(s,a) = V(s) + (A(s,a) - mean(A(s,a)))
+        # Combine: Q(s,a,b) = V(s) + (A(s,a,b) - mean(A(s,a,b)))
         q_values = value + (advantage - advantage.mean(dim=1, keepdim=True))
         return q_values
 
@@ -67,11 +75,15 @@ def huber_loss(y_true, y_pred):
     return torch.mean(loss)
 
 
-class Brain(object):
+class NashBrain(object):
+    """Brain for Nash-Q Learning with joint Q-values."""
 
-    def __init__(self, state_size, action_size, brain_name, arguments):
+    def __init__(self, state_size, num_actions_per_agent, num_agents, brain_name, arguments):
         self.state_size = state_size
-        self.action_size = action_size
+        self.num_actions_per_agent = num_actions_per_agent
+        self.num_agents = num_agents
+        self.joint_action_size = num_actions_per_agent ** num_agents  # 5^2 = 25
+        
         self.weight_backup = brain_name.replace('.h5', '.pth')
         self.batch_size = arguments['batch_size']
         self.learning_rate = arguments['learning_rate']
@@ -79,6 +91,7 @@ class Brain(object):
         self.num_nodes = arguments['number_nodes']
         self.dueling = arguments['dueling']
         self.optimizer_model = arguments['optimizer']
+        self.gradient_clip = arguments.get('gradient_clip', 1.0)
         
         # Set device
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -110,9 +123,11 @@ class Brain(object):
 
     def _build_model(self):
         if self.dueling:
-            model = DuelingDQN(self.state_size, self.action_size, self.num_nodes)
+            model = JointDuelingDQN(self.state_size, self.num_actions_per_agent, 
+                                   self.num_agents, self.num_nodes)
         else:
-            model = DQN(self.state_size, self.action_size, self.num_nodes)
+            model = JointDQN(self.state_size, self.num_actions_per_agent, 
+                           self.num_agents, self.num_nodes)
         
         model.to(self.device)
         return model
@@ -136,14 +151,18 @@ class Brain(object):
                 loss = huber_loss(y_tensor, predictions)
             
             loss.backward()
-            # Gradient clipping
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip)
             self.optimizer.step()
             
-            # Store loss for tracking
             self.last_loss = loss.item()
 
     def predict(self, state, target=False):
+        """
+        Predict Q-values for all joint actions.
+        
+        Returns:
+            Q-values: [batch_size, 25] array of Q(s, a_A, a_B)
+        """
         model = self.model_ if target else self.model
         model.eval()
         
@@ -153,7 +172,19 @@ class Brain(object):
             return predictions.cpu().numpy()
 
     def predict_one_sample(self, state, target=False):
+        """Predict Q-values for a single state."""
         return self.predict(state.reshape(1, self.state_size), target=target).flatten()
+    
+    def get_q_matrix(self, state, target=False):
+        """
+        Get Q-values as a matrix for game-theoretic analysis.
+        
+        Returns:
+            Q_matrix: [5, 5] array where Q_matrix[a_A, a_B] = Q(s, a_A, a_B)
+        """
+        q_values = self.predict_one_sample(state, target=target)
+        # Reshape from [25] to [5, 5]
+        return q_values.reshape(self.num_actions_per_agent, self.num_actions_per_agent)
 
     def update_target_model(self):
         self.model_.load_state_dict(self.model.state_dict())

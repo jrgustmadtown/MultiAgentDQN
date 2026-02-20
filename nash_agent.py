@@ -38,6 +38,7 @@ class NashAgent(object):
         self.experience_replay_type = arguments['experience_replay']
         self.pr_scale = arguments.get('pr_scale', 0.5)  # For PER
         self.train_frequency = arguments.get('train_frequency', 1)  # Train every N steps
+        self.reward_scale = arguments.get('reward_scale', 1.0)  # Scale rewards down
         
         # Experience replay
         if self.experience_replay_type == 'UER':
@@ -163,8 +164,11 @@ class NashAgent(object):
 
     def observe(self, state, action_A, action_B, reward, new_state, done):
         """Store experience in memory."""
+        # Scale reward to reduce Q-value magnitude
+        scaled_reward = reward * self.reward_scale
+        
         # Package experience as tuple
-        sample = (state, action_A, action_B, reward, new_state, done)
+        sample = (state, action_A, action_B, scaled_reward, new_state, done)
         
         if self.experience_replay_type == 'PER':
             # Compute TD error for prioritization
@@ -174,9 +178,9 @@ class NashAgent(object):
             joint_index = self.joint_action_to_index(action_A, action_B)
             
             if done:
-                target = reward
+                target = scaled_reward
             else:
-                target = reward + self.gamma * np.max(q_values_new)
+                target = scaled_reward + self.gamma * np.max(q_values_new)
             
             error = abs(target - q_values[joint_index])
             self.memory.remember(sample, error)
@@ -187,9 +191,16 @@ class NashAgent(object):
     def decay_epsilon(self):
         if self.epsilon > self.epsilon_final:
             self.epsilon *= self.epsilon_decay
+    
+    def step_scheduler(self):
+        """Step the learning rate scheduler (call once per episode)."""
+        self.brain.step_scheduler()
 
     def replay(self):
         """Train on a batch of experiences."""
+        # Increment step counter FIRST
+        self.steps += 1
+        
         # Only train every N steps
         if self.steps % self.train_frequency != 0:
             return
@@ -247,10 +258,7 @@ class NashAgent(object):
                 td_errors.append(td_error)
             self.memory.update(batch_indices, td_errors)
         
-        # Update step counter
-        self.steps += 1
-        
-        # Update target network
+        # Update target network (steps already incremented at start)
         if self.steps % self.update_target_frequency == 0:
             self.brain.update_target_model()
 

@@ -105,6 +105,7 @@ class Environment(object):
             # Decay exploration
             if not self.test:
                 self.agent.decay_epsilon()
+                self.agent.step_scheduler()  # Step LR scheduler once per episode
             
             # Track metrics
             self.rewards_list.append(episode_reward)
@@ -288,23 +289,25 @@ if __name__ == "__main__":
         'episode_count': args.episode_count,
         'max_timestep': 100,
         
-        # Nash-Q parameters (tuned for 25-output network)
-        'batch_size': 16,  # Smaller for speed
-        'learning_rate': 1e-5,  # Lower for stability with joint Q-values
-        'gamma': 0.99,
-        'memory_capacity': 10000,  # Much smaller for speed
+        # Nash-Q parameters (tuned for converging loss like your reference image)
+        'batch_size': 64,
+        'learning_rate': 1e-3,  # Start higher
+        'gamma': 0.9,  # Lower gamma = smaller Q-values
+        'memory_capacity': 50000,
         'epsilon_start': 1.0,
-        'epsilon_stop': 0.01,
-        'epsilon_decay': 0.995,
-        'update_target_frequency': 100,
-        'number_nodes': 128,  # Smaller network for speed
-        'dueling': False,  # Disable dueling for speed
+        'epsilon_stop': 0.05,
+        'epsilon_decay': 0.998,
+        'update_target_frequency': 500,  # Less frequent updates for stability
+        'tau': 1.0,  # Hard update
+        'number_nodes': 64,  # Smaller network
+        'dueling': False,
         'double_dqn': True,
-        'experience_replay': 'UER',  # Simpler for now, avoid PER overhead
+        'experience_replay': 'UER',
         'pr_scale': 0.5,
-        'optimizer': 'Adam',  # Adam often more stable than RMSProp
-        'gradient_clip': 0.5,  # Stronger clipping
-        'train_frequency': 1  # Train every step for better loss tracking
+        'optimizer': 'Adam',
+        'gradient_clip': 0.5,  # Tighter clipping
+        'train_frequency': 4,
+        'reward_scale': 0.01  # Scale rewards to 0.01-0.64 range
     }
     
     environment = Environment(arguments)

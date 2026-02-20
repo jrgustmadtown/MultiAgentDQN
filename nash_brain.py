@@ -66,13 +66,16 @@ class JointDuelingDQN(nn.Module):
         return q_values
 
 
-def huber_loss(y_true, y_pred):
+def huber_loss(y_true, y_pred, reduce=True):
+    """Huber loss with optional reduction."""
     err = y_true - y_pred
     cond = torch.abs(err) < HUBER_LOSS_DELTA
     L2 = 0.5 * torch.square(err)
     L1 = HUBER_LOSS_DELTA * (torch.abs(err) - 0.5 * HUBER_LOSS_DELTA)
     loss = torch.where(cond, L2, L1)
-    return torch.mean(loss)
+    if reduce:
+        return torch.mean(loss)
+    return loss  # Per-sample loss for PER weighting
 
 
 class NashBrain(object):
@@ -92,6 +95,7 @@ class NashBrain(object):
         self.dueling = arguments['dueling']
         self.optimizer_model = arguments['optimizer']
         self.gradient_clip = arguments.get('gradient_clip', 1.0)
+        self.tau = arguments.get('tau', 0.001)  # Soft update parameter
         
         # Set device
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -109,6 +113,9 @@ class NashBrain(object):
         else:
             print('Invalid optimizer!')
             self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
+        
+        # Learning rate scheduler - decay by 0.5 every 500 episodes
+        self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=500, gamma=0.5)
         
         # Track loss for visualization
         self.last_loss = 0.0
@@ -145,16 +152,24 @@ class NashBrain(object):
             
             if sample_weight is not None:
                 sample_weight_tensor = torch.FloatTensor(sample_weight).to(self.device)
-                loss = huber_loss(y_tensor, predictions)
-                loss = (loss * sample_weight_tensor).mean()
+                # Use unreduced loss for proper IS weighting
+                loss_per_sample = huber_loss(y_tensor, predictions, reduce=False)
+                # Average over actions, then weight by samples
+                loss_per_sample = loss_per_sample.mean(dim=1)  # [batch]
+                loss = (loss_per_sample * sample_weight_tensor).mean()
             else:
                 loss = huber_loss(y_tensor, predictions)
             
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip)
             self.optimizer.step()
+            # NOTE: scheduler.step() moved to be called per episode, not per training step
             
             self.last_loss = loss.item()
+    
+    def step_scheduler(self):
+        """Step the learning rate scheduler (call once per episode)."""
+        self.scheduler.step()
 
     def predict(self, state, target=False):
         """
@@ -187,7 +202,9 @@ class NashBrain(object):
         return q_values.reshape(self.num_actions_per_agent, self.num_actions_per_agent)
 
     def update_target_model(self):
-        self.model_.load_state_dict(self.model.state_dict())
+        """Soft update: target = tau * model + (1-tau) * target"""
+        for target_param, param in zip(self.model_.parameters(), self.model.parameters()):
+            target_param.data.copy_(self.tau * param.data + (1.0 - self.tau) * target_param.data)
 
     def save_model(self):
         torch.save(self.model.state_dict(), self.weight_backup)

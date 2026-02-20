@@ -19,7 +19,7 @@ class JointDQN(nn.Module):
         super(JointDQN, self).__init__()
         self.num_actions_per_agent = num_actions_per_agent
         self.num_agents = num_agents
-        self.joint_action_size = num_actions_per_agent ** num_agents  # 5^2 = 25
+        self.joint_action_size = num_actions_per_agent ** num_agents  # 4^2 = 16
         
         self.fc1 = nn.Linear(state_size, num_nodes)
         self.fc2 = nn.Linear(num_nodes, num_nodes)
@@ -180,10 +180,10 @@ class NashBrain(object):
         Get Q-values as a matrix for game-theoretic analysis.
         
         Returns:
-            Q_matrix: [5, 5] array where Q_matrix[a_A, a_B] = Q(s, a_A, a_B)
+            Q_matrix: [4, 4] array where Q_matrix[a_A, a_B] = Q(s, a_A, a_B)
         """
         q_values = self.predict_one_sample(state, target=target)
-        # Reshape from [25] to [5, 5]
+        # Reshape from [16] to [4, 4]
         return q_values.reshape(self.num_actions_per_agent, self.num_actions_per_agent)
 
     def update_target_model(self):

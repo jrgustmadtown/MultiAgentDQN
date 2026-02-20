@@ -26,7 +26,7 @@ class Environment(object):
         self.env = CarGame(arguments, current_path)
         
         self.num_agents = 2
-        self.num_actions_per_agent = 5
+        self.num_actions_per_agent = self.env.action_space()  # Get from environment (4 actions)
         self.state_size = self.env.state_size
         
         # Results directory
@@ -60,7 +60,7 @@ class Environment(object):
     def run(self):
         """Main training/testing loop."""
         print("\n" + "="*60)
-        print("NASH-Q LEARNING - Phase 1: Joint Action-Value Representation")
+        print("NASH-Q LEARNING - Complete (All 4 Phases)")
         print("="*60)
         print(f"Environment: Car Game ({self.env.grid_size}x{self.env.grid_size} grid)")
         print(f"State size: {self.state_size}")
@@ -180,7 +180,7 @@ class Environment(object):
     def _plot_results(self):
         """Generate training plots."""
         fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-        fig.suptitle('Nash-Q Learning - Phase 1 Training Results', fontsize=16)
+        fig.suptitle('Nash-Q Learning - Complete Training Results', fontsize=16)
         
         episodes = range(len(self.rewards_list))
         

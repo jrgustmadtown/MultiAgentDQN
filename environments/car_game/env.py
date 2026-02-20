@@ -14,13 +14,12 @@ import numpy as np
 
 class CarGame(object):
     
-    # Define actions
+    # Define actions (STAY removed - cars must always move)
     UP = 0
     DOWN = 1
     LEFT = 2
     RIGHT = 3
-    STAY = 4
-    A_DIFF = [(-1, 0), (1, 0), (0, -1), (0, 1), (0, 0)]
+    A_DIFF = [(-1, 0), (1, 0), (0, -1), (0, 1)]
     
     def __init__(self, args, current_path):
         """
@@ -51,13 +50,14 @@ class CarGame(object):
         center_dist = self.grid_size - 1  # Manhattan distance from corner to center
         self.max_points = 2 ** center_dist
         self.crash_reward = 2 * self.max_points
+        self.wall_penalty = -50  # Moderate penalty for hitting walls
         
         # Visualization (optional)
         self.render_flag = args.get('render', False)
         
     def action_space(self):
         """Return the number of possible actions per player."""
-        return 5  # UP, DOWN, LEFT, RIGHT, STAY
+        return 4  # UP, DOWN, LEFT, RIGHT (no STAY)
     
     def _calculate_square_points(self, pos):
         """
@@ -126,16 +126,20 @@ class CarGame(object):
         
         self.step_count += 1
         
-        # Apply actions to both cars simultaneously
-        new_car_a_pos = self._apply_action(self.car_a_pos, car_a_action)
-        new_car_b_pos = self._apply_action(self.car_b_pos, car_b_action)
+        # Apply actions and check for wall collisions
+        new_car_a_pos, hit_wall_a = self._apply_action_with_collision(self.car_a_pos, car_a_action)
+        new_car_b_pos, hit_wall_b = self._apply_action_with_collision(self.car_b_pos, car_b_action)
         
         # Update positions
         self.car_a_pos = new_car_a_pos
         self.car_b_pos = new_car_b_pos
         
+        # Check if either car hit a wall
+        if hit_wall_a or hit_wall_b:
+            # Wall collision - penalty but continue playing
+            reward = self.wall_penalty + self._calculate_square_points(self.car_a_pos)
         # Check for crash (same position)
-        if self.car_a_pos == self.car_b_pos:
+        elif self.car_a_pos == self.car_b_pos:
             # Crash! Car A (crasher) wins big
             reward = self.crash_reward
             self.done = True
@@ -153,6 +157,30 @@ class CarGame(object):
         # Rendering can be called manually from the training script
         
         return next_state, reward, self.done
+    
+    def _apply_action_with_collision(self, pos, action):
+        """
+        Apply an action and detect if it would hit a wall.
+        
+        Args:
+            pos: Current (x, y) position
+            action: Action index (0-3)
+        
+        Returns:
+            new_pos: New position (stays same if wall hit)
+            hit_wall: True if action tried to move into a wall
+        """
+        x, y = pos
+        dx, dy = self.A_DIFF[action]
+        
+        new_x = x + dx
+        new_y = y + dy
+        
+        # Check if new position is out of bounds
+        if new_x < 0 or new_x >= self.grid_size or new_y < 0 or new_y >= self.grid_size:
+            return pos, True  # Stay in place, but return wall collision flag
+        
+        return (new_x, new_y), False
     
     def _apply_action(self, pos, action):
         """

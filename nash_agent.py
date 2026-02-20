@@ -9,6 +9,7 @@ Key difference from DQN Agent:
 import random
 import numpy as np
 from nash_brain import NashBrain
+from nash_solver import compute_minimax_value, compute_nash_equilibrium
 
 
 class NashAgent(object):
@@ -18,7 +19,7 @@ class NashAgent(object):
         self.state_size = state_size
         self.num_actions_per_agent = num_actions_per_agent
         self.num_agents = num_agents
-        self.joint_action_size = num_actions_per_agent ** num_agents  # 5^2 = 25
+        self.joint_action_size = num_actions_per_agent ** num_agents  # 4^2 = 16
         
         self.agent_id = agent_id  # For identification
         
@@ -56,31 +57,99 @@ class NashAgent(object):
         # Track losses
         self.losses = []
         self.episode_losses = []  # Per-episode tracking
+        self.max_loss_history = 10000  # Limit loss history to prevent memory issues
         
         # Step counter
         self.steps = 0
 
     def greedy_actor(self, state):
         """
-        Phase 1: Use epsilon-greedy on JOINT actions.
-        Later (Phase 4): Will use Nash equilibrium policy.
+        Phase 4: Use Nash equilibrium policy with wall-aware action masking.
         
-        For now: Pick random joint action or best joint action.
+        Mask invalid actions (hitting walls) in Q-matrix before computing Nash equilibrium.
         """
         if np.random.rand() <= self.epsilon:
-            # Random joint action
-            joint_action_index = random.randrange(self.joint_action_size)
+            # Random exploration with valid actions only
+            action_A = self._get_random_valid_action(state, agent_index=0)
+            action_B = self._get_random_valid_action(state, agent_index=1)
         else:
-            # Greedy joint action
-            q_values = self.brain.predict_one_sample(state)
-            joint_action_index = np.argmax(q_values)
-        
-        # Convert joint action index to individual actions
-        # For 2 agents with 5 actions each: joint_index = a_A * 5 + a_B
-        action_A = joint_action_index // self.num_actions_per_agent
-        action_B = joint_action_index % self.num_actions_per_agent
+            # Nash equilibrium exploitation with masked Q-values
+            q_matrix = self.brain.get_q_matrix(state, target=False)
+            
+            # Mask invalid actions with very negative values
+            q_matrix_masked = self._mask_invalid_actions(state, q_matrix)
+            
+            nash_value, action_A, action_B = compute_nash_equilibrium(q_matrix_masked)
         
         return action_A, action_B
+    
+    def _mask_invalid_actions(self, state, q_matrix, grid_size=5):
+        """
+        Mask Q-values for invalid actions (hitting walls) with -inf.
+        
+        For Nash equilibrium:
+        - Car A (maximizer) won't pick actions with -inf rows
+        - Car B (minimizer) won't pick actions with -inf columns
+        
+        Args:
+            state: [car_a_x, car_a_y, car_b_x, car_b_y]
+            q_matrix: [4, 4] Q-values for all joint actions
+            
+        Returns:
+            q_matrix_masked: Q-matrix with invalid actions set to -inf
+        """
+        car_a_x, car_a_y = int(state[0]), int(state[1])
+        car_b_x, car_b_y = int(state[2]), int(state[3])
+        
+        q_matrix_masked = q_matrix.copy()
+        
+        # Mask invalid actions for Car A (rows)
+        # UP=0, DOWN=1, LEFT=2, RIGHT=3
+        if car_a_x == 0:  # At top, can't go UP
+            q_matrix_masked[0, :] = -np.inf
+        if car_a_x == grid_size - 1:  # At bottom, can't go DOWN
+            q_matrix_masked[1, :] = -np.inf
+        if car_a_y == 0:  # At left, can't go LEFT
+            q_matrix_masked[2, :] = -np.inf
+        if car_a_y == grid_size - 1:  # At right, can't go RIGHT
+            q_matrix_masked[3, :] = -np.inf
+        
+        # Mask invalid actions for Car B (columns)
+        if car_b_x == 0:  # At top, can't go UP
+            q_matrix_masked[:, 0] = -np.inf
+        if car_b_x == grid_size - 1:  # At bottom, can't go DOWN
+            q_matrix_masked[:, 1] = -np.inf
+        if car_b_y == 0:  # At left, can't go LEFT
+            q_matrix_masked[:, 2] = -np.inf
+        if car_b_y == grid_size - 1:  # At right, can't go RIGHT
+            q_matrix_masked[:, 3] = -np.inf
+        
+        return q_matrix_masked
+    
+    def _get_random_valid_action(self, state, agent_index, grid_size=5):
+        """Get a random action that won't hit a wall."""
+        if agent_index == 0:
+            x, y = int(state[0]), int(state[1])
+        else:
+            x, y = int(state[2]), int(state[3])
+        
+        # Check which actions are valid (won't hit walls)
+        # UP=0, DOWN=1, LEFT=2, RIGHT=3
+        valid_actions = []
+        if x > 0:  # Can go UP
+            valid_actions.append(0)
+        if x < grid_size - 1:  # Can go DOWN
+            valid_actions.append(1)
+        if y > 0:  # Can go LEFT
+            valid_actions.append(2)
+        if y < grid_size - 1:  # Can go RIGHT
+            valid_actions.append(3)
+        
+        if len(valid_actions) == 0:
+            # Should never happen, but fallback
+            return random.randrange(self.num_actions_per_agent)
+        
+        return random.choice(valid_actions)
     
     def joint_action_to_index(self, action_A, action_B):
         """Convert (action_A, action_B) to joint action index."""
@@ -159,9 +228,14 @@ class NashAgent(object):
         # Train
         self.brain.train(states, targets, sample_weight=sample_weight, epochs=1, verbose=0)
         
-        # Track loss
-        self.losses.append(self.brain.last_loss)
-        self.episode_losses.append(self.brain.last_loss)  # Also track per episode
+        # Track loss (with bounded history)
+        loss_value = self.brain.last_loss
+        self.losses.append(loss_value)
+        self.episode_losses.append(loss_value)
+        
+        # Keep losses list bounded to prevent memory issues
+        if len(self.losses) > self.max_loss_history:
+            self.losses = self.losses[-self.max_loss_history:]
         
         # Update PER priorities
         if self.experience_replay_type == 'PER':
@@ -182,38 +256,41 @@ class NashAgent(object):
 
     def find_targets(self, states, actions_A, actions_B, rewards, new_states, dones):
         """
-        Phase 1: Use standard max Q-value for next state.
-        Phase 3: Will replace with Nash equilibrium value.
+        Phase 3: Nash-Q Learning - Use Nash equilibrium value instead of max Q.
+        
+        Bellman equation: Q(s, a_A, a_B) = r + γ × V*(s')
+        where V*(s') = Nash equilibrium value = minimax(Q(s'))
         """
         batch_size = len(states)
         targets = self.brain.predict(states, target=False)
         
         if self.double_dqn:
-            # Double DQN: use online network to select action, target network to evaluate
-            q_values_new_state = self.brain.predict(new_states, target=False)
+            # Double DQN with Nash equilibrium
             q_values_new_state_target = self.brain.predict(new_states, target=True)
             
             for i in range(batch_size):
                 if dones[i]:
                     target_value = rewards[i]
                 else:
-                    # Select best joint action using online network
-                    best_joint_index = np.argmax(q_values_new_state[i])
-                    # Evaluate using target network
-                    target_value = rewards[i] + self.gamma * q_values_new_state_target[i][best_joint_index]
+                    # NASH-Q: Compute Nash equilibrium value using minimax
+                    q_matrix = q_values_new_state_target[i].reshape(self.num_actions_per_agent, self.num_actions_per_agent)
+                    nash_value = compute_minimax_value(q_matrix)
+                    target_value = rewards[i] + self.gamma * nash_value
                 
                 joint_index = self.joint_action_to_index(actions_A[i], actions_B[i])
                 targets[i][joint_index] = target_value
         else:
-            # Standard DQN
+            # Standard Nash-Q
             q_values_new_state = self.brain.predict(new_states, target=True)
             
             for i in range(batch_size):
                 if dones[i]:
                     target_value = rewards[i]
                 else:
-                    # Use max Q-value over all joint actions
-                    target_value = rewards[i] + self.gamma * np.max(q_values_new_state[i])
+                    # NASH-Q: Use Nash equilibrium value instead of max Q
+                    q_matrix = q_values_new_state[i].reshape(self.num_actions_per_agent, self.num_actions_per_agent)
+                    nash_value = compute_minimax_value(q_matrix)
+                    target_value = rewards[i] + self.gamma * nash_value
                 
                 joint_index = self.joint_action_to_index(actions_A[i], actions_B[i])
                 targets[i][joint_index] = target_value
